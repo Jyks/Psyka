@@ -1,3 +1,3 @@
 # Psyka
 Psychology project with next to no development time.  
-Live at [http://zyxum.com/game](zyxum.com/game)
+Live at [zyxum.com/game](http://zyxum.com/game)
