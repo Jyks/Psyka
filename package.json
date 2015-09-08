@@ -1,0 +1,8 @@
+{
+  "name": "Psyka",
+  "version": "1.0.0",
+  "dependencies": {
+    "express": "^4.13.3",
+    "socket.io": "^1.3.6"
+  }
+}

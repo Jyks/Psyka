@@ -1,0 +1,321 @@
+<!doctype html>
+<html>
+<head>
+	<title>I don't fucking know</title>
+	<style>
+		* {
+			margin: 5px;
+			padding: 0;
+		}
+
+		#credits {
+			font: 16px Helvetica, Arial;
+			margin: 0px;
+			width: 100%;
+		}
+	</style>
+</head>
+<body>
+	<center><canvas id="canvas" width="800" height="600"></canvas></center>
+	<center id="credits">Made by<a href="/game/credits">cool people</a></center>
+	
+	<!-- Hidden -->
+	<img id="room_img" src="" hidden="true">
+	<img id="marker_img" src="/game/images/babe.kyn.png" hidden="true">
+	<video id="tv" src="" width="300" hidden="true" ></video>
+
+	<!-- Scripts -->
+	<script src="/socket.io/socket.io.js"></script>
+	<script src="http://code.jquery.com/jquery-2.1.1.min.js"></script>
+
+	<script>
+		// Game variables
+		var room = "";
+		var rooms = [
+			"livingroom", "Living Room", 10, 10, 100, 20,
+			"kitchen", "Kitchen", 120, 10, 100, 20,
+			"bathroom", "Bathroom", 230, 10, 100, 20,
+			"bedroom", "Bedroom", 340, 10, 100, 20,
+			"yard", "Yard", 450, 10, 100, 20,
+			"mall", "Mall", 560, 10, 100, 20
+		];
+		
+		var marker = [];
+		var activity = -1;
+		var happening = [];
+		var happeningOption = -1;
+		var done = false;
+		var finals;
+
+		// Marker position
+		var markerx = 340, markery = 440;
+		var nextx = markerx, nexty = markery;
+		
+		// Socket.io
+		var socket = io();
+		
+		socket.on("activity", function(count) {
+			activity = count;
+		});
+
+		socket.on("roomchange", function(newroom) {
+			if(room === "livingroom" && newroom !== "livingroom" && tv_playing) {
+				tv_playing = false;
+				tv_vid.pause();
+				socket.emit("newprogramme");
+			}
+
+			room = newroom;
+			document.getElementById("room_img").src = "/game/images/" + newroom + ".png";
+		});
+
+		socket.on("happening", function(data) {
+			happening = data;
+			if(happening.title === undefined) {
+				happeningOption = -1;
+			}
+		});
+
+		socket.on("startmoving", function(data) {
+			nextx = data.x;
+			nexty = data.y;
+		});
+
+		socket.on("marker", function(data) {
+			marker = data;
+		});
+
+		socket.on("tvprogramme", function(data) {
+			document.getElementById("tv").src = data;
+		});
+
+		socket.on("done", function(data) {
+			done = true;
+			finals = data;
+		});
+		
+		// Canvas
+		var ctx, width, height, canvasx, canvasy, mousex, mousey;
+
+		// Offset for room selector bar
+		var selectorOffset = 60;
+
+		// TV, you fucking savages wanted it so much we might as well waste an infinite amount of time implementing it
+		var tv_playing = false;
+		var tv_vid = document.getElementById("tv");
+
+		tv_vid.addEventListener("ended", function() {
+			tv_playing = false;
+			socket.emit("newprogramme");
+		});
+
+		$(document).mousemove(function(event) {
+			mousex = event.pageX - canvasx;
+			mousey = event.pageY - canvasy;
+		});
+
+		$(document).mousedown(function(event) {
+			var x = event.pageX - canvasx;
+			var y = event.pageY - canvasy;
+			
+			// TV toggling
+			if(room === "livingroom") {
+				if(x > 667 && y > 228 && x < 800 && y < 435) {
+					tv_playing = !tv_playing;
+
+					if(tv_playing) {
+						if(document.getElementById("tv").src !== "") tv_vid.play();
+					 } else {
+						tv_vid.pause();
+						tv_vid.currentTime = 0;
+						socket.emit("newprogramme");
+						document.getElementById("tv").src = "";
+					}
+				}
+			}
+
+			for(var i = 0; i < rooms.length; i += 6) {
+				if(x > selectorOffset + rooms[i+2] && x < selectorOffset + rooms[i+2] + rooms[i+4] && y < rooms[i+3] + rooms[i+5]) {
+					socket.emit("roomchange", rooms[i]);
+					return false;
+				}
+			}
+
+			if(happening.title !== undefined && happeningOption != -1) {
+				var boxWidth = ctx.measureText(happening.title[0]).width + 20;
+				var otherWidth = 10;
+				for(var i = 0; i < happening.options.length; i++)
+					otherWidth += ctx.measureText(happening.options[i]).width + 16;
+
+				boxWidth = (otherWidth > boxWidth)? otherWidth : boxWidth;
+				
+				var filled = 0;
+				var chosen = false;
+				
+				for(var i = 0; i < happening.options.length; i++) {
+					if(mousex > width / 2 - otherWidth / 2 + filled + 16
+						&& mousey > height / 2
+						&& mousex < width / 2 - otherWidth / 2 + filled + 16 + ctx.measureText(happening.options[i]).width
+						&& mousey < height / 2 + 28) {
+						
+						happeningOption = i;
+						break;
+					}
+					
+					filled += ctx.measureText(happening.options[i]).width + 16;
+				}
+
+				socket.emit("answer", happeningOption);
+				happeningOption = -1;
+				return false;
+			}
+			
+			if(x > 0 && y > 0 && x < width && y < height) return false;
+		});
+
+		$(document).ready(function() {
+			// Initialize the canvas
+			ctx = $("#canvas")[0].getContext("2d");
+			width = $("#canvas").width();
+			height = $("#canvas").height();
+			canvasx = $("#canvas").offset().left;
+			canvasy = $("#canvas").offset().top;
+
+			ctx.font = "16px Arial";
+			
+			setInterval(render, 1000 / 60);
+
+			setInterval(function() {
+				socket.emit("activity");
+				if(tv_playing) socket.emit("watching_tv");
+			}, 10000);
+		});
+		
+		function render() {
+			if(nextx > markerx) markerx++;
+			else if(nextx < markerx) markerx--;
+
+			if(nexty > markery) markery++;
+			else if(nexty < markery) markery--;
+
+			if(nextx !== markerx || nexty !== markery) {
+				// TODO
+			}
+
+			// Change the canvas offset if necessary
+			canvasx = $("#canvas").offset().left;
+			canvasy = $("#canvas").offset().top;
+
+			// Clear the screen
+			ctx.clearRect(0, 0, width, height);
+			
+			// Room background
+			ctx.drawImage(document.getElementById("room_img"), 0, 0);
+
+			// Marker
+			ctx.drawImage(document.getElementById("marker_img"), markerx, markery, 40, 160);
+			ctx.fillText(marker.name, markerx - ctx.measureText(marker.name).width / 2 + 16, markery - 2);
+
+			// Room selectors
+			for(var i = 0; i < rooms.length; i += 6) {
+				if(room === rooms[i]) {
+					ctx.fillStyle = "#FFFFFF";
+					fillRect(selectorOffset + rooms[i+2], rooms[i+3], rooms[i+4], rooms[i+5]);
+					ctx.fillStyle = "#000000";
+					drawRect(selectorOffset + rooms[i+2], rooms[i+3], rooms[i+4], rooms[i+5]);
+				} else {
+					fillRect(selectorOffset + rooms[i+2], rooms[i+3], rooms[i+4], rooms[i+5]);
+					ctx.fillStyle = "#FFFFFF";
+				}
+
+				ctx.fillText(rooms[i+1], selectorOffset + rooms[i+2] + rooms[i+4] / 2 - ctx.measureText(rooms[i+1]).width / 2, rooms[i+3] + 16);
+				ctx.fillStyle = "#000000";
+			}
+			
+			ctx.fillText("Marker: " + JSON.stringify(marker), 10, 50);
+			//ctx.fillText("Activity points: " + activity, 10, 66);
+			//ctx.fillText("mouse (x, y): (" + mousex + ", " + mousey + ")", 10, 66);
+			
+			// Render the tv video
+			if(room === "livingroom" && tv_playing) {
+				ctx.setTransform(0.6, 0.28, 0, 1, 0, -500);
+				ctx.drawImage(tv_vid, 1113, 416, 256, 144);
+				ctx.setTransform(1, 0, 0, 1, 0, 0);
+			}
+
+			if(happening.title !== undefined && !done) {
+				ctx.font = "24px Arial";
+				var boxWidth = ctx.measureText(happening.title[0]).width + 20;
+
+				var otherWidth = 10;
+				for(var i = 0; i < happening.options.length; i++)
+					otherWidth += ctx.measureText(happening.options[i]).width + 16;
+
+				boxWidth = (otherWidth > boxWidth)? otherWidth : boxWidth;
+				
+				fillRect(width / 2 - boxWidth / 2, height / 2 - 32, boxWidth, 64);
+				
+				ctx.fillStyle = "#FFFFFF";
+				ctx.fillText(happening.title[0], width / 2 - ctx.measureText(happening.title[0]).width / 2, height / 2 - 8);
+				
+				var filled = 0;
+				var chosen = false;
+				for(var i = 0; i < happening.options.length; i++) {
+					if(mousex > width / 2 - otherWidth / 2 + filled + 16
+						&& mousey > height / 2
+						&& mousex < width / 2 - otherWidth / 2 + filled + 16 + ctx.measureText(happening.options[i]).width
+						&& mousey < height / 2 + 28) {
+						
+						ctx.fillStyle = "#FF0000";
+						fillRect(width / 2 - otherWidth / 2 + filled + 16, height / 2,
+							ctx.measureText(happening.options[i]).width, 28);
+						ctx.fillStyle = "#FFFFFF";
+						happeningOption = i;
+						chosen = true;
+					} else if(!chosen) happeningOption = -1;
+					
+					ctx.fillText(happening.options[i], width / 2 - otherWidth / 2 + filled + 16, height / 2 + 22);
+					filled += ctx.measureText(happening.options[i]).width + 16;
+					//console.log("mouse on option " + happeningOption);
+				}
+
+				ctx.font = "16px Arial";
+				ctx.fillStyle = "#000000";
+			}
+			
+			// Done text
+			if(done) {
+				ctx.fillText("And so the child goes off to school...", 100, 100);
+				ctx.fillText("Your job is now done!", 100, 120);
+				ctx.fillText("Final stats:", 100, 140);
+				ctx.fillText("Happiness: " + finals.happiness, 110, 160);
+				ctx.fillText("Attachement: " + finals.attachement, 110, 180);
+				ctx.fillText("Thanks for playing!", 100, 200);
+			}
+
+			// Canvas edges
+			drawRect(0, 0, width, height);
+		}
+
+		function drawRect(x, y, w, h) {
+			 ctx.beginPath();
+			 ctx.rect(x, y, w, h);
+			 ctx.closePath();
+			 ctx.stroke();
+		}
+
+		function fillRect(x, y, w, h) {
+			ctx.beginPath();
+			ctx.rect(x, y, w, h);
+			ctx.closePath();
+			ctx.fill();
+		}
+
+		function getCuteRoomName(room) {
+			for(var i = 0; i < rooms.length; i += 6) {
+				if(rooms[i] === room) return rooms[i+1];
+			}
+		}
+	</script>
+</body>
+</html>
